@@ -1,0 +1,15 @@
+*.git/*
+*.swp
+*.pyc
+*.idea*
+*ipynb*
+*.ipynb_checkpoints*
+*__pycache__*
+*.logs/*
+*.err*
+*_log
+*_err
+*setting*
+*.data*
+*_pb2.py*
+.DS_Store*
