@@ -28,7 +28,7 @@ def user_profile_predict():
     """
     # 启动 update_center_network
     # general_bgp 由于是由一个进程不断sleep再执行，会引起tf的变量问题，需要每次update的时候都是新的子进程，general_bgp2可以满足
-    general_bgp2(update_center_network, (glo_orders_cache,), dt=6000)
+    general_bgp2(update_center_network, (glo_orders_cache,), dt=4000)
 
     for i in range(999999):
         # 获取部分

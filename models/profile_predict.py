@@ -238,6 +238,7 @@ def do_profile_(glo_orders_cache):
                 # order_all_df = get_member_order_all(mid_, glo_variable['orders_end_time'])
                 # glo_orders_cache[mid_] = MemberOrderCache(order_all_df)
                 insert_glo_cache(glo_orders_cache, mid_)
+                print_wf(f'{mid_} init~, insert all orders <<')
             else:
                 ca_ = glo_orders_cache[mid_]
                 ca_.update_by_rows(df_mul_inx.loc[[(mid_, pay_day_)], :])
@@ -314,13 +315,22 @@ def update_center_network(glo_orders_cache):
             print(f'{m_name}，可用于训练中心的样本数应大于1000实际{samples_}', end=' >> ')
             continue
         glo_nn_opt[m_name]['input_nodes'] = mx_arr_di[m_name].shape[1] - 1
+        save_dir = get_save_dir(m_name)
+
         my_nn = ANNCon(name=m_name, **glo_nn_opt[m_name])
         my_nn.data_init(mx_arr_di[m_name])
         my_nn.normalize_x(tp='rel_n11')
         # my_nn.normalize_y(tp='rel_n11')
-        my_nn.nn_fit_with_cross(op_times=10, e_print=True)
+        op_times = 5
+        try:
+            my_nn.net_save_restore(save_dir, sr_type='load_latest')
+            print(f'{m_name}load success, 走到这里了才说明中心网络也有了online learning特性')
+        except Exception as err:
+            op_times = 10
+            print(f'mark3,{err},op_times={op_times}', )
 
-        save_dir = get_save_dir(m_name)
+        my_nn.nn_fit_with_cross(op_times=op_times, l_print=True)
+
         global_step = int(str(samples_) + day_forpast(ss="%Y%m%d%H%M"))
         try:
             my_nn.net_save_restore(save_dir, global_step)
@@ -392,7 +402,7 @@ def do_a_predict(ca_,):
         my_nn.data_init(arr_)
         my_nn.re_normalize_x()
         my_nn.re_normalize_y()
-        my_nn.nn_fit_with_cross(op_err=0.0003, )  # e_print=True
+        my_nn.nn_fit_with_cross(times=300, op_err=0.0003, )  # e_print=True
         my_nn.net_predict(do_inverse=True)
 
         # 更新相应模型结果
@@ -429,7 +439,7 @@ def do_predict_(ca_li, ):
         task = threading.Thread(target=do_a_predict, args=(ca_, ))
         task.start()
         task_li.append(task)
-        threading_hold_print(3, 2, sleept=5, flush_ss='fthreads num: %s .. \r')
+        threading_hold_print(7, 3, sleept=5, flush_ss='fthreads num: %s .. \r')
     for task in task_li:
         task.join()
 
