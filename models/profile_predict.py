@@ -391,14 +391,16 @@ def do_a_predict(ca_,):
         my_nn = ANNCon(name=m_name, **glo_nn_opt[m_name])
         # 准备读取
         save_dir = get_save_dir(m_name)
-        di_ = VHolder().pickup(save_dir + 'nn_instance_saved_value')
-        # 因为从群体到个体，y的归一化放入my_nn内，存储的nn_instance_saved_value不包含y的归一化方式
-        di_.update({'y_norm_tp': 'dev_Max', 'y_max_arr': ca_.max_dt})
-        # 读取归一化方式
-        my_nn.instance_dict2var(di_)
-        # 读取网络
-        my_nn.net_save_restore(save_dir, sr_type='load_latest')
-
+        try:
+            di_ = VHolder().pickup(save_dir + 'nn_instance_saved_value')
+            # 因为从群体到个体，y的归一化放入my_nn内，存储的nn_instance_saved_value不包含y的归一化方式
+            di_.update({'y_norm_tp': 'dev_Max', 'y_max_arr': ca_.max_dt})
+            # 读取归一化方式
+            my_nn.instance_dict2var(di_)
+            # 读取网络
+            my_nn.net_save_restore(save_dir, sr_type='load_latest')
+        except AttributeError as err:
+            print('flag:: 中心参数不存在', err)
         my_nn.data_init(arr_)
         my_nn.re_normalize_x()
         my_nn.re_normalize_y()
