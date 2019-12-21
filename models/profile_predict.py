@@ -39,7 +39,7 @@ def get_handle_list():
             - status_df1.loc[0, 'record0'] - status_df1.loc[0, 'numb0']
         Timer(0).runtime_delay(glo_variable['pursue_secs'])
         # 没有缓存的时候说明是第一次，会额外做-1的任务,回拨一下record0时间
-        if glo_variable['max_order_num'] < 0:
+        if glo_variable['max_order_num'] < 1:
             back_seconds = status_df1.loc[0, 'numb0'] * 1.5
             print(f'回拨时间{back_seconds} s...')
             status_df1.loc[0, 'record0'] -= back_seconds
