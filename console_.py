@@ -6,10 +6,10 @@ from buildings.processing_funcs import *
 from buildings.unstable_funcs import *
 
 # 调试时启用
-glo_orders_cache = {}
+# glo_orders_cache = {}
 
-# mgr = multiprocessing.Manager()
-# glo_orders_cache = mgr.dict()
+mgr = multiprocessing.Manager()
+glo_orders_cache = mgr.dict()
 
 
 def mid2cha_li(mid_li, glo_cache_=glo_orders_cache):
@@ -24,13 +24,16 @@ def mid2cha_li(mid_li, glo_cache_=glo_orders_cache):
     return ret_li
 
 
-def user_profile_predict():
+def user_profile_predict(with_init=False):
     """
     行为画像和消费预测主进程
+    :param with_init:
     :return:
     """
     # 启动 update_center_network
     # general_bgp 由于是由一个进程不断sleep再执行，会引起tf的变量问题，需要每次update的时候都是新的子进程，general_bgp2可以满足
+    if with_init:
+        init_tables_pg()
     general_bgp2(update_center_network, (glo_orders_cache,), dt=4000)
 
     for i in range(999999):

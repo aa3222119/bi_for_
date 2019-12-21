@@ -11,8 +11,10 @@ import threading
 # glo_orders_cache = {}
 
 
-glo_variable = {'batch_orders_expect': 230,
+glo_variable = {'batch_orders_expect': 240,
                 'orders_end_time': 140000000,  # 取个人全量时的时间上限
+                'delay_secs': 1800,  # 实时系统延迟于现实的秒数
+                'pursue_secs': 999999,  # 需要追赶的秒数,小于零时表示系统已经赶超了，需要等待的秒数
                 'max_order_num': 0,  # 最大用户数的记录
                 'center_network_ready': 0,  # 中心网络的ready状态，大于0时记录更新次数
                 }
@@ -32,6 +34,10 @@ def insert_glo_cache(glo_orders_cache, mid_, with_end_time_limit=True, with_forc
 def get_handle_list():
     for _ in range(9999):
         status_df1 = get_status_by_mid(2)
+        # 需要追赶的秒数,小于零时表示系统已经赶超了，需要等待的秒数
+        glo_variable['pursue_secs'] = time.time() - glo_variable['delay_secs'] \
+            - status_df1.loc[0, 'record0'] - status_df1.loc[0, 'numb0']
+        Timer(0).runtime_delay(glo_variable['pursue_secs'])
         df_ = general_order_get(status_df1.loc[0, 'record0'], status_df1.loc[0, 'numb0'])
         status_df1.loc[0, 'record0'] += status_df1.loc[0, 'numb0']
         glo_variable['orders_end_time'] = status_df1.loc[0, 'record0']
@@ -229,35 +235,27 @@ def set_ca_list(glo_orders_cache):
     """
 
     handle_df = get_handle_list()
-    df_mul_inx = handle_df.set_index(['mid', 'pay_day'])
-    # for i, row_ in handle_df.iterrows():
-    #     mid_ = row_['mid']
-    #     if mid_ not in glo_orders_cache:
-    #         # print(f'{mid_} init in glo_orders_cache')
-    #         order_all_df = get_member_order_all(mid_, glo_variable['orders_end_time'])
-    #         glo_orders_cache[mid_] = MemberOrderCache(order_all_df)
-    #     else:
-    #         # glo_orders_cache[mid_].update_by_one(row_)
-    #         ca_ = glo_orders_cache[mid_]
-    #         glo_orders_cache.update({mid_: ca_.update_by_one(row_)})
+    ret_li = []
+    if len(handle_df):
+        df_mul_inx = handle_df.set_index(['mid', 'pay_day'])
+        for mid_, pay_day_ in df_mul_inx.index.unique():
+            if mid_ not in glo_orders_cache:
+                # order_all_df = get_member_order_all(mid_, glo_variable['orders_end_time'])
+                # glo_orders_cache[mid_] = MemberOrderCache(order_all_df)
+                insert_glo_cache(glo_orders_cache, mid_)
+                print_wf(f'{mid_} init~, insert all orders <<')
+            else:
+                ca_ = glo_orders_cache[mid_]
+                ca_.update_by_rows(df_mul_inx.loc[[(mid_, pay_day_)], :])
+                glo_orders_cache.update({mid_: ca_})
 
-    for mid_, pay_day_ in df_mul_inx.index.unique():
-        if mid_ not in glo_orders_cache:
-            # order_all_df = get_member_order_all(mid_, glo_variable['orders_end_time'])
-            # glo_orders_cache[mid_] = MemberOrderCache(order_all_df)
-            insert_glo_cache(glo_orders_cache, mid_)
-            print_wf(f'{mid_} init~, insert all orders <<')
-        else:
-            ca_ = glo_orders_cache[mid_]
-            ca_.update_by_rows(df_mul_inx.loc[[(mid_, pay_day_)], :])
-            glo_orders_cache.update({mid_: ca_})
-
-        if len(glo_orders_cache[mid_].df) > glo_variable['max_order_num']:
-            df = glo_orders_cache[mid_].df
-            glo_variable['max_order_num'] = len(df)
-
-    print(glo_orders_cache.__len__(), glo_variable)
-    return handle_df.mid.unique().tolist()
+            if len(glo_orders_cache[mid_].df) > glo_variable['max_order_num']:
+                df = glo_orders_cache[mid_].df
+                glo_variable['max_order_num'] = len(df)
+        # TODO glo_orders_cache 内存管理，内存占用过大时删除不热的用户
+        print(f'****缓存的用户数{glo_orders_cache.__len__()}，glo_variable::', glo_variable)
+        ret_li = handle_df.mid.unique().tolist()
+    return ret_li
 
 
 def df_mid_p(df_, id_cols_count=3):

@@ -211,10 +211,10 @@ class Timer:
         time.sleep(n)
         return self
 
-    def runtime_delay(self, deltasecond=1):
-        if deltasecond < 0:
+    def runtime_delay(self, delta_second=1):
+        if delta_second < 0:
             print(day_forpast(0, ss='%Y-%m-%d %H:%M:%S'), '需要等待%s秒以继续....' % (-deltasecond), )
-            self.sleep(-deltasecond)
+            self.sleep(-delta_second)
         return self
 
 
