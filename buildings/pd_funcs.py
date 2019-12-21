@@ -1,4 +1,6 @@
 import pandas as pd
+pd.options.display.max_columns = 16  # 展示16行数据，超过16行，则以省略号显示
+pd.options.display.max_rows = 16
 
 
 def group_count_join(df, cols):

@@ -1,11 +1,11 @@
 from buildings.comm_across import *
 from sqlalchemy import create_engine
 import pymysql
+# import pymssql
 import pandas as pd
-import json
-import pymssql
-
-from pyhive import hive
+# import json
+import psycopg2 as pg2
+# from pyhive import hive
 
 
 class MysqlPyc:
@@ -252,163 +252,194 @@ class MysqlPyc:
     #     self.quit()
 
 
-class MssqlPyc(MysqlPyc):
+# class MssqlPyc(MysqlPyc):
+#
+#     def __init__(self, db_dic):
+#         super(MssqlPyc, self).__init__(db_dic, False)
+#         # ----- SqlServer 需要不同的地方 ------------
+#         self.default_dic = {'port': 1433, 'charset': 'UTF-8'}
+#         self.engine_state = "mssql+pymssql://%(user)s:%(password)s@%(host)s:%(port)s/%(database)s?charset=%(charset)s"
+#         self.module = pymssql
+#         self.module_cursor = None
+#         # ----- SqlServer 需要不同的地方 ------------
+#         self.c_conn()
+#
+#     def get_data_(self, sqls):
+#         if type(sqls) is list:
+#             for sql in sqls:
+#                 self.cur.execute(sql)
+#         else:
+#             self.cur.execute(sqls)
+#             self.get_a_table(sqls)
+#         rows = self.cur.fetchall()
+#         self.conn.commit()
+#         return rows
+#
+#     def get_data(self, sql):
+#         df = self.to_dataframe(sql)
+#         return json.loads(df.to_json(orient='records'))
 
+
+class PgsqlPyc(MysqlPyc):
     def __init__(self, db_dic):
-        super(MssqlPyc, self).__init__(db_dic, False)
-        # ----- SqlServer 需要不同的地方 ------------
-        self.default_dic = {'port': 1433, 'charset': 'UTF-8'}
-        self.engine_state = "mssql+pymssql://%(user)s:%(password)s@%(host)s:%(port)s/%(database)s?charset=%(charset)s"
-        self.module = pymssql
+        super(PgsqlPyc, self).__init__(db_dic, False)
+        # ----- Pgsql 需要不同的地方 ------------
+        self.default_dic = {'port': 5432, }  # 'charset': 'UTF-8'}
+        self.engine_state = "postgresql+psycopg2://%(user)s:%(password)s@%(host)s:%(port)s/%(database)s"
+        self.module = pg2
         self.module_cursor = None
-        # ----- SqlServer 需要不同的地方 ------------
+        # ----- Pgsql 需要不同的地方 ------------
         self.c_conn()
 
-    def get_data_(self, sqls):
-        if type(sqls) is list:
-            for sql in sqls:
-                self.cur.execute(sql)
-        else:
-            self.cur.execute(sqls)
-            self.get_a_table(sqls)
-        rows = self.cur.fetchall()
-        self.conn.commit()
-        return rows
+    def df_upd_tosql(self, df, batch=666, table='', conflict_keys='id'):
+        if table == '':
+            table = self.table
+            if table == '':
+                return 'No table specified ~'
+        df = df.fillna('Null')  # df的空值插入值 用inplace=True会报异常(解释待定)
+        df_col_li = df.columns.get_level_values(0)
+        cols = ','.join(df_col_li)
+        valst = ','.join(['%s=excluded.%s' % (x, x) for x in df_col_li])
+        res_li = []
+        while len(df):
+            ind = df.index[:batch]
+            values = ','.join(['(%s)' % ','.join([str(df.loc[i, c]) for c in df_col_li]) for i in ind])
+            sql_s = 'INSERT INTO %s (%s) VALUES %s ON conflict (%s) DO UPDATE SET %s' \
+                    % (table, cols, values, conflict_keys, valst)
+            # print(sql_s)
+            res_li += [self.sql_engine(sql_s)]
+            df.drop(ind, inplace=True)
+        return res_li
 
-    def get_data(self, sql):
-        df = self.to_dataframe(sql)
-        return json.loads(df.to_json(orient='records'))
-
-
-class HivePyc:
-
-    def __init__(self, db_dic, with_conn=True):
-        self.db_dic = db_dic
-        self.default_dic = {'port': 10000}
-        self.conn, self.cur, self.engine = None, None, None
-        self.module = hive
-        if 'password' in self.db_dic:
-            self.engine_state = "hive://%(username)s:%(password)s@%(host)s:%(port)s/%(database)s"
-        else:
-            self.engine_state = "hive://%(username)s@%(host)s:%(port)s/%(database)s"
-        self.wait = 5
-        self.table = ''
-        if with_conn:
-            self.c_conn()
-
-    def wait_for_(self, err_flag, err):
-        boob = self.wait < 9
-        if boob:
-            for x in ['already exists', "doesn't exist", 'Duplicate ', 'error in your SQL', 'partitions to DROP']:
-                if type(err.args[0]) is str and re.findall(x, err.args[0]):  # ex_exceptions 不再继续等待重做的例外
-                    print(x, err.args[0], 'pass')
-                    return False
-            print(day_forpast(0, ss='%Y-%m-%d %H:%M:%S'), 'Exception:flag(%s):' % err_flag)
-            print('   ', err, 'waiting for %s .... ' % self.wait, )
-            time.sleep(self.wait)
-            self.wait += 1
-        else:
-            self.quit('重连了太多次,aborted！')
-        return boob
-
-    def c_conn(self):  # change or create conn
-        try:
-            for k, v in self.default_dic.items():
-                if k not in self.db_dic:
-                    self.db_dic[k] = v
-            self.conn = self.module.Connection(**self.db_dic)
-            self.cur = self.conn.cursor()
-            self.engine = self.engine_state % self.db_dic
-            return self
-        except Exception as err:
-            if self.wait_for_('c_conn', err):
-                return self.c_conn()
-
-    def get_a_table(self, sql):
-        if self.table == '':
-            res_ss = re.findall('from\s+(\S+?)[\s;]', sql)
-            if res_ss:
-                self.table = res_ss[0]
-        return self.table
-
-    def do_single_sql(self, sql):
-        rows = None
-        if sql and len(sql) > 1:
-            self.cur.execute(sql)
-            self.conn.commit()
-            try:
-                rows = self.cur.fetchall()
-            except:
-                # print('fetchall error! ', err.args, end='', flush=True)
-                rows = 0
-        else:
-            print('sql too short', end='', flush=True)
-        return rows
-
-    def _pre_do_sqls(self, sqls):
-        # 长sql预处理,输入是长字符的sql,多段sql之间可以是;分割,处理前面的并返回最后一段sql
-        sqls_li = sqls if type(sqls) is list else sqls.split(';')
-        # 去掉结尾长度很小的无效sql
-        while len(sqls_li) and len(re.sub('\s', '', sqls_li[-1])) < 6:
-            sqls_li.pop(-1)
-        for sql in sqls_li[:-1]:  #
-            if len(re.sub('\s', '', sql)) > 6:
-                _ = self.do_single_sql(sql)
-        return sqls_li[-1] if len(sqls_li) else None
-
-    def get_data(self, sqls):
-        try:
-            last_sql = self._pre_do_sqls(sqls)
-            self.get_a_table(last_sql)
-            return self.do_single_sql(last_sql)
-        except Exception as err:
-            if self.wait_for_('get_data', err):
-                return self.c_conn().get_data(sqls)
-            else:
-                return None
-
-    def to_dataframe(self, sqls):
-        #  sqls   允许用;间隔多个sql,并可返回最后一个sql的返回结果去转换成dataframe
-        try:
-            last_sql = self._pre_do_sqls(sqls)
-            self.get_a_table(last_sql)
-            df = pd.read_sql(last_sql, self.conn)
-            self.conn.commit()
-            return df
-        except Exception as err:
-            if self.wait_for_('to_dataframe', err):
-                return self.c_conn().to_dataframe(sqls)
-            else:
-                return pd.DataFrame([])
-
-    def sql_engine(self, echo=False):
-        return create_engine(self.engine, echo=echo, encoding='utf8')
-
-    # 因为pyhive一个未解决的issue: https://github.com/dropbox/PyHive/issues?utf8=%E2%9C%93&q=to_sql 所以得造个简单轮子
-    # 暂不考虑分区表
-    def df_to_sql(self, df, db_table, cols_mat_rep_di=None, cols_comment_rep_di=None, force_replace_table=False):
-        # 建表语句 cols_mat: 字段格式对照,默认string  cols_comment: 字段注释对照
-        cols_mat = {x: 'string' for x in df.columns}
-        if cols_mat_rep_di:
-            cols_mat.update(cols_mat_rep_di)
-        cols_comment = {x: '' for x in df.columns}
-        if cols_comment_rep_di:
-            cols_comment.update(cols_comment)
-        cols_ss = ',\n'.join([f"{x} {cols_mat[x]} comment '{cols_comment[x]}'" for x in df.columns])
-        create_ss = f'create table if not exists {db_table}({cols_ss})'
-        if force_replace_table:
-            create_ss = f'drop table if exists {db_table};\n' + create_ss
-        self.get_data(create_ss)
-        values = ','.join(['(%s)' % ','.join([f"'{df.loc[i, c]}'" for c in df.columns]) for i in df.index])
-        insert_ss = f'INSERT INTO TABLE {db_table} VALUES {values}'
-        return self.get_data(insert_ss)
-
-    def quit(self, message=''):
-        try:
-            if message:
-                print(message)
-            # self.cur.close()
-            self.conn.close()
-        except Exception as err:
-            print(day_forpast(0, ss='%Y-%m-%d %H:%M:%S'), 'Exception:flag(quit):', err.args[0])
+# class HivePyc:
+#
+#     def __init__(self, db_dic, with_conn=True):
+#         self.db_dic = db_dic
+#         self.default_dic = {'port': 10000}
+#         self.conn, self.cur, self.engine = None, None, None
+#         self.module = hive
+#         if 'password' in self.db_dic:
+#             self.engine_state = "hive://%(username)s:%(password)s@%(host)s:%(port)s/%(database)s"
+#         else:
+#             self.engine_state = "hive://%(username)s@%(host)s:%(port)s/%(database)s"
+#         self.wait = 5
+#         self.table = ''
+#         if with_conn:
+#             self.c_conn()
+#
+#     def wait_for_(self, err_flag, err):
+#         boob = self.wait < 9
+#         if boob:
+#             for x in ['already exists', "doesn't exist", 'Duplicate ', 'error in your SQL', 'partitions to DROP']:
+#                 if type(err.args[0]) is str and re.findall(x, err.args[0]):  # ex_exceptions 不再继续等待重做的例外
+#                     print(x, err.args[0], 'pass')
+#                     return False
+#             print(day_forpast(0, ss='%Y-%m-%d %H:%M:%S'), 'Exception:flag(%s):' % err_flag)
+#             print('   ', err, 'waiting for %s .... ' % self.wait, )
+#             time.sleep(self.wait)
+#             self.wait += 1
+#         else:
+#             self.quit('重连了太多次,aborted！')
+#         return boob
+#
+#     def c_conn(self):  # change or create conn
+#         try:
+#             for k, v in self.default_dic.items():
+#                 if k not in self.db_dic:
+#                     self.db_dic[k] = v
+#             self.conn = self.module.Connection(**self.db_dic)
+#             self.cur = self.conn.cursor()
+#             self.engine = self.engine_state % self.db_dic
+#             return self
+#         except Exception as err:
+#             if self.wait_for_('c_conn', err):
+#                 return self.c_conn()
+#
+#     def get_a_table(self, sql):
+#         if self.table == '':
+#             res_ss = re.findall('from\s+(\S+?)[\s;]', sql)
+#             if res_ss:
+#                 self.table = res_ss[0]
+#         return self.table
+#
+#     def do_single_sql(self, sql):
+#         rows = None
+#         if sql and len(sql) > 1:
+#             self.cur.execute(sql)
+#             self.conn.commit()
+#             try:
+#                 rows = self.cur.fetchall()
+#             except:
+#                 # print('fetchall error! ', err.args, end='', flush=True)
+#                 rows = 0
+#         else:
+#             print('sql too short', end='', flush=True)
+#         return rows
+#
+#     def _pre_do_sqls(self, sqls):
+#         # 长sql预处理,输入是长字符的sql,多段sql之间可以是;分割,处理前面的并返回最后一段sql
+#         sqls_li = sqls if type(sqls) is list else sqls.split(';')
+#         # 去掉结尾长度很小的无效sql
+#         while len(sqls_li) and len(re.sub('\s', '', sqls_li[-1])) < 6:
+#             sqls_li.pop(-1)
+#         for sql in sqls_li[:-1]:  #
+#             if len(re.sub('\s', '', sql)) > 6:
+#                 _ = self.do_single_sql(sql)
+#         return sqls_li[-1] if len(sqls_li) else None
+#
+#     def get_data(self, sqls):
+#         try:
+#             last_sql = self._pre_do_sqls(sqls)
+#             self.get_a_table(last_sql)
+#             return self.do_single_sql(last_sql)
+#         except Exception as err:
+#             if self.wait_for_('get_data', err):
+#                 return self.c_conn().get_data(sqls)
+#             else:
+#                 return None
+#
+#     def to_dataframe(self, sqls):
+#         #  sqls   允许用;间隔多个sql,并可返回最后一个sql的返回结果去转换成dataframe
+#         try:
+#             last_sql = self._pre_do_sqls(sqls)
+#             self.get_a_table(last_sql)
+#             df = pd.read_sql(last_sql, self.conn)
+#             self.conn.commit()
+#             return df
+#         except Exception as err:
+#             if self.wait_for_('to_dataframe', err):
+#                 return self.c_conn().to_dataframe(sqls)
+#             else:
+#                 return pd.DataFrame([])
+#
+#     def sql_engine(self, echo=False):
+#         return create_engine(self.engine, echo=echo, encoding='utf8')
+#
+#     # 因为pyhive一个未解决的issue: https://github.com/dropbox/PyHive/issues?utf8=%E2%9C%93&q=to_sql 所以得造个简单轮子
+#     # 暂不考虑分区表
+#     def df_to_sql(self, df, db_table, cols_mat_rep_di=None, cols_comment_rep_di=None, force_replace_table=False):
+#         # 建表语句 cols_mat: 字段格式对照,默认string  cols_comment: 字段注释对照
+#         cols_mat = {x: 'string' for x in df.columns}
+#         if cols_mat_rep_di:
+#             cols_mat.update(cols_mat_rep_di)
+#         cols_comment = {x: '' for x in df.columns}
+#         if cols_comment_rep_di:
+#             cols_comment.update(cols_comment)
+#         cols_ss = ',\n'.join([f"{x} {cols_mat[x]} comment '{cols_comment[x]}'" for x in df.columns])
+#         create_ss = f'create table if not exists {db_table}({cols_ss})'
+#         if force_replace_table:
+#             create_ss = f'drop table if exists {db_table};\n' + create_ss
+#         self.get_data(create_ss)
+#         values = ','.join(['(%s)' % ','.join([f"'{df.loc[i, c]}'" for c in df.columns]) for i in df.index])
+#         insert_ss = f'INSERT INTO TABLE {db_table} VALUES {values}'
+#         return self.get_data(insert_ss)
+#
+#     def quit(self, message=''):
+#         try:
+#             if message:
+#                 print(message)
+#             # self.cur.close()
+#             self.conn.close()
+#         except Exception as err:
+#             print(day_forpast(0, ss='%Y-%m-%d %H:%M:%S'), 'Exception:flag(quit):', err.args[0])
 

@@ -1,4 +1,69 @@
 """
+    这里存储pgsql建表语句
+"""
+
+pgsql_cr_di = {
+    'TRIGGER': """\
+CREATE OR REPLACE FUNCTION upd_timestamp() RETURNS TRIGGER 
+LANGUAGE plpgsql
+AS
+$$
+BEGIN
+    NEW.update_time = CLOCK_TIMESTAMP();
+    RETURN NEW;
+END;
+$$;""",
+    'tbi_l7_m_deed_profile1': """\
+create table IF NOT EXISTS tbi_l7_m_deed_profile1_r(
+"mid" uuid NOT NULL,
+re_pay_count integer DEFAULT 0,
+order_count integer DEFAULT 0 ,
+origin_price_sum integer DEFAULT 0 ,
+pay_price_sum integer DEFAULT 0 ,
+origin_price_std0 NUMERIC(10,3) DEFAULT NULL ,
+pay_price_std0 NUMERIC(10,3) DEFAULT NULL ,
+oil_origin_price_sum integer DEFAULT 0 ,
+oil_pay_price_sum integer DEFAULT 0 ,
+oil_count integer DEFAULT 0 ,
+oil_liters_sum NUMERIC(10,3) DEFAULT 0 ,
+liters_std0 NUMERIC(10,3) DEFAULT NULL ,
+no_oil_origin_price_sum integer DEFAULT 0 ,
+no_oil_pay_price_sum integer DEFAULT 0 ,
+no_oil_count integer DEFAULT 0 ,
+no_oil_quantity_sum NUMERIC(10,3) DEFAULT 0 ,
+coupon_count integer DEFAULT 0 ,
+coupon_price_sum integer DEFAULT 0 ,
+pay_toc_msa NUMERIC(10,3) DEFAULT NULL ,
+weekday_msa NUMERIC(10,3) DEFAULT NULL ,
+monthday_msa NUMERIC(10,3) DEFAULT NULL ,
+diff_time_avg NUMERIC(10,3) DEFAULT NULL ,
+diff_time_msa NUMERIC(10,3) DEFAULT NULL ,
+diff_time_std0 NUMERIC(10,3) DEFAULT NULL ,
+diff_time_max NUMERIC(10,3) DEFAULT NULL ,
+diff_time_max_fixed NUMERIC(10,3) DEFAULT NULL ,
+diff_time_std0_fixed NUMERIC(10,3) DEFAULT NULL ,
+obligate text DEFAULT NULL ,
+create_time timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
+update_time timestamp DEFAULT '1990-01-01 00:00:00',
+CONSTRAINT "pk_mid" PRIMARY KEY ("mid")
+);
+create trigger t__1 before update on tbi_l7_m_deed_profile1_r for each row execute procedure upd_timestamp();
+comment on column tbi_l7_m_deed_profile1.re_pay_count is '用户有效加油次数，有效针对消费预测认为的一次样本';
+comment on column tbi_l7_m_deed_profile1.order_count is '用户所有订单数';
+
+comment on column tbi_l7_m_deed_profile1.diff_time_std0 is '间隔时间的标准差';
+comment on column tbi_l7_m_deed_profile1.diff_time_std0_fixed is '修正的间隔时间的标准差';
+"""
+
+}
+
+t_name_ = ''
+pgsql_cr_di[t_name_] = f"""\
+    
+"""
+
+
+"""
     这里存储mysql建表语句
 """
 

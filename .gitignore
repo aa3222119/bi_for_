@@ -13,3 +13,4 @@
 *.data*
 *_pb2.py*
 .DS_Store*
+*dist*

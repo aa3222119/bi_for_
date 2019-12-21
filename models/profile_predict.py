@@ -31,7 +31,7 @@ def insert_glo_cache(glo_orders_cache, mid_, with_end_time_limit=True, with_forc
 
 def get_handle_list():
     for _ in range(9999):
-        status_df1 = get_status_by_mid(1)
+        status_df1 = get_status_by_mid(2)
         df_ = general_order_get(status_df1.loc[0, 'record0'], status_df1.loc[0, 'numb0'])
         status_df1.loc[0, 'record0'] += status_df1.loc[0, 'numb0']
         glo_variable['orders_end_time'] = status_df1.loc[0, 'record0']
@@ -69,7 +69,7 @@ def df_order_cd_p(df):
     # df['oil_op'], df['no_oil_op'] = 0, 0
     # df['oil_dp'], df['no_oil_dp'] = 0, 0
     # df['oil_quantity'], df['no_oil_quantity'] = 0, 0
-    add_cols = ['oil_count', 'no_oil_count', 'oil_op', 'no_oil_op', 'oil_dp', 'no_oil_dp',
+    add_cols = ['oil_times', 'no_oil_times', 'oil_op', 'no_oil_op', 'oil_dp', 'no_oil_dp',
                 'oil_quantity', 'no_oil_quantity', 'order_times']
     # for c in add_cols:
     #     df[c] = 0
@@ -91,8 +91,8 @@ def df_order_cd_p(df):
             df.loc[i, 'order_times'] += 1
         df.loc[i + 1, add_cols] = df.loc[i, add_cols]
 
-    for c in ['op', 'dp', 'Item_No', 'Rounding', 'is_oil', 'Quantity']:
-        df.drop(c, axis=1, inplace=True)
+    # for c in ['op', 'dp', 'Item_No', 'Rounding', 'is_oil', 'Quantity']:
+    #     df.drop(c, axis=1, inplace=True)
     df.drop(ind_too_close, inplace=True)
     df = df.fillna(df.dt.mean())  # 最后一个需要预测的位置先填上均值
     return df
@@ -118,20 +118,19 @@ def df_more_msa_p(df_more):
     return diff_time_, pay_toc_, weekday_, monthday_
 
 
-def fix_dt_p1(dt_):
+def fix_dt_p1(dt_, para1=28):
     """
     对dt列表进行fix的处理，一般方式
     :param dt_:
+    :param para1: 均衡参数1
     :return:
     """
-    para1 = 28
-    dt_mean = dt_.mean()
-    if dt_mean < para1:
-        thread = para1 + dt_mean * 1.6
-        # return dt_[dt_ < thread].max()
-        return thread
-    else:
-        return dt_.max()
+    dt_mean, dt_max_fixed = dt_.mean(), dt_.max()
+    if dt_mean < para1 < dt_max_fixed:
+        dt_max_fixed = k_avg(dt_mean, dt_max_fixed)
+        dt_max_fixed = k_avg(dt_max_fixed, para1) if dt_max_fixed > para1 else dt_max_fixed
+        dt_.loc[dt_ > dt_max_fixed] = dt_max_fixed
+    return dt_max_fixed, dt_
 
 
 def fix_dt_p2(dt_):
@@ -156,41 +155,46 @@ def profile_ca(mid_, glo_orders_cache):
     dfr = dfr.rename(columns={'yd': 're_pay_count'})
     # 处理后所以dfr['re_pay_count'][0] 一定等于df_order_cd_p后df的长度
     dfr['order_count'] = df.order_times.sum()
-    dfr['origin_price_sum'] = df['op_all'].sum()
-    dfr['pay_price_sum'] = df['dp_all'].sum()
+    dfr['origin_amount_sum'] = df['op_all'].sum()
+    dfr['pay_amount_sum'] = df['dp_all'].sum()
 
-    dfr['oil_count'] = df['oil_count'].sum()
-    dfr['oil_origin_price_sum'] = df['oil_op'].sum()
-    dfr['oil_pay_price_sum'] = df['oil_dp'].sum()
-    dfr['oil_liters_sum'] = df['oil_quantity'].sum()
+    dfr['fuel_count'] = df['oil_times'].sum()
+    dfr['fuel_origin_amount'] = df['oil_op'].sum()
+    dfr['fuel_pay_amount'] = df['oil_dp'].sum()
+    dfr['fuel_quantity'] = df['oil_quantity'].sum()
 
-    dfr['no_oil_count'] = df['no_oil_count'].sum()
-    dfr['no_oil_origin_price_sum'] = df['no_oil_op'].sum()
-    dfr['no_oil_pay_price_sum'] = df['no_oil_dp'].sum()
-    dfr['no_oil_quantity_sum'] = df['no_oil_quantity'].sum()
+    dfr['nonoil_count'] = df['no_oil_times'].sum()
+    dfr['nonoil_origin_amount'] = df['no_oil_op'].sum()
+    dfr['nonoil_pay_amount'] = df['no_oil_dp'].sum()
+    dfr['nonoil_quantity'] = df['no_oil_quantity'].sum()
 
     # 目前对券的简化理解，实付和原价不同使用了优惠就算
     dfr['coupon_count'] = len(df.query('dp_all<op_all'))
-    dfr['coupon_price_sum'] = (df['op_all'] - df['dp_all']).sum()
+    dfr['coupon_amount'] = (df['op_all'] - df['dp_all']).sum()
 
     # 处理后的df大于1次pay
     if dfr['re_pay_count'][0] > 1:
-        dfr['origin_price_std0'] = df['op_all'].std()
-        dfr['pay_price_std0'] = df['dp_all'].std()
-        dfr['liters_std0'] = df['oil_quantity'].std()
+        dfr['origin_amount_std0'] = df['op_all'].std()
+        dfr['pay_amount_std0'] = df['dp_all'].std()
+        dfr['fuel_quantity_std0'] = df['oil_quantity'].std()
         dfr['diff_time_avg'] = df['dt'][:-1].mean()
         dfr['diff_time_max'] = df['dt'][:-1].max()
         dfr['diff_time_max_fixed'] = dfr['diff_time_max']
+        # 新增的两个字段
+        if len(df['dt'][:-1]) > 1:
+            dfr['diff_time_std0'] = df['dt'][:-1].std()
+            dfr['diff_time_std0_fixed'] = dfr['diff_time_std0']
 
         # 历史这个会员的画像
-        dfr_ord = get_m2_p1(dfr.index[0])  # if isinstance(cache_.dfr, type(None)) else cache_.dfr
+        # dfr_ord = get_m2_p1(dfr.index[0])  # if isinstance(cache_.dfr, type(None)) else cache_.dfr
+        dfr_ord = get_l7_m_dp1(dfr.index[0])
         if len(dfr_ord) == 1:
             df_more = df.iloc[dfr_ord['re_pay_count'][0]:]
             # 已有了历史msa相关值
             if dfr_ord['diff_time_msa'][0] and len(df_more):
                 diff_time_, pay_toc_, weekday_, monthday_ = df_more_msa_p(df_more)
                 # print(dfr.index[0], '走入了msa修正', len(df_more), dfr_ord['diff_time_msa'][0], diff_time_)
-                print_wf(f"{dfr.index[0]} 走入了msa修正, {len(df_more)}，原{dfr_ord['diff_time_msa'][0]}，修{diff_time_}")
+                print_wf(f"{dfr.index[0]} 走入msa计算:{dfr_ord['diff_time_msa'][0]} to {diff_time_}, {len(df_more)}")
                 dfr['diff_time_msa'] = k_avg(dfr_ord['diff_time_msa'][0], diff_time_, .4)
                 dfr['pay_toc_msa'] = circle_avg(dfr_ord['pay_toc_msa'][0], pay_toc_, .4)
                 dfr['weekday_msa'] = circle_avg(dfr_ord['weekday_msa'][0], weekday_, .4, circle=7)
@@ -198,17 +202,17 @@ def profile_ca(mid_, glo_orders_cache):
         # 保证re_pay_count大于1的一定要有msa那些
         if 'diff_time_msa' not in dfr.columns:
             dfr['diff_time_msa'], dfr['pay_toc_msa'], dfr['weekday_msa'], dfr['monthday_msa'] = df_more_msa_p(df)
-            # print(dfr.index[0], '第一次更新diff_time_msa', dfr['diff_time_msa'].iloc[0])
-            print_wf(f"{dfr.index[0]} 第一次更新diff_time_msa, {len(df)}，值{dfr['diff_time_msa'][0]}")
+            # print(dfr.index[0], '初始化diff_time_msa', dfr['diff_time_msa'].iloc[0])
+            print_wf(f"{dfr.index[0]} 初始化diff_time_msa, {len(df)}，值{dfr['diff_time_msa'][0]}")
     # 考虑fix dt
     if dfr['re_pay_count'][0] > 6:
-        dfr['diff_time_max_fixed'] = fix_dt_p1(df.dt)
+        dfr['diff_time_max_fixed'], df.dt = fix_dt_p1(df.dt)
         if dfr['diff_time_max_fixed'][0] < dfr['diff_time_max'][0]:
-            fix_inx = df.dt > dfr['diff_time_max_fixed'][0]
-            df.loc[fix_inx, 'dt'] = dfr['diff_time_max_fixed'][0]
-            print('diff_time_max_fixed 生效', dfr['diff_time_max_fixed'][0], dfr['diff_time_max'][0])
+            print(f"diff_time_max_fixed 生效: {dfr['diff_time_max'][0]} fixed to {dfr['diff_time_max_fixed'][0]}")
+            dfr['diff_time_std0_fixed'] = df['dt'][:-1].std()
 
-    m2_p1_upd_by_df(dfr.reset_index())
+    # m2_p1_upd_by_df(dfr.reset_index())
+    l7_m_dp1_upd_by_df(dfr.reset_index())
     ca_.update_df_pr(df, dfr)
     glo_orders_cache.update({mid_: ca_})
     # glo_orders_cache[mid_].update_df_pr(df, dfr)
@@ -217,43 +221,43 @@ def profile_ca(mid_, glo_orders_cache):
     return df, dfr
 
 
-def do_profile_(glo_orders_cache):
-    m_order_num, _ = 0, 0
-    for _ in range(666):
-        handle_df = get_handle_list()
-        df_mul_inx = handle_df.set_index(['mid', 'pay_day'])
-        # for i, row_ in handle_df.iterrows():
-        #     mid_ = row_['mid']
-        #     if mid_ not in glo_orders_cache:
-        #         # print(f'{mid_} init in glo_orders_cache')
-        #         order_all_df = get_member_order_all(mid_, glo_variable['orders_end_time'])
-        #         glo_orders_cache[mid_] = MemberOrderCache(order_all_df)
-        #     else:
-        #         # glo_orders_cache[mid_].update_by_one(row_)
-        #         ca_ = glo_orders_cache[mid_]
-        #         glo_orders_cache.update({mid_: ca_.update_by_one(row_)})
+def set_ca_list(glo_orders_cache):
+    """
+    返回待处理用户id列表，并更新glo_orders_cache
+    :param glo_orders_cache:
+    :return:
+    """
 
-        for mid_, pay_day_ in df_mul_inx.index.unique():
-            if mid_ not in glo_orders_cache:
-                # order_all_df = get_member_order_all(mid_, glo_variable['orders_end_time'])
-                # glo_orders_cache[mid_] = MemberOrderCache(order_all_df)
-                insert_glo_cache(glo_orders_cache, mid_)
-                print_wf(f'{mid_} init~, insert all orders <<')
-            else:
-                ca_ = glo_orders_cache[mid_]
-                ca_.update_by_rows(df_mul_inx.loc[[(mid_, pay_day_)], :])
-                glo_orders_cache.update({mid_: ca_})
+    handle_df = get_handle_list()
+    df_mul_inx = handle_df.set_index(['mid', 'pay_day'])
+    # for i, row_ in handle_df.iterrows():
+    #     mid_ = row_['mid']
+    #     if mid_ not in glo_orders_cache:
+    #         # print(f'{mid_} init in glo_orders_cache')
+    #         order_all_df = get_member_order_all(mid_, glo_variable['orders_end_time'])
+    #         glo_orders_cache[mid_] = MemberOrderCache(order_all_df)
+    #     else:
+    #         # glo_orders_cache[mid_].update_by_one(row_)
+    #         ca_ = glo_orders_cache[mid_]
+    #         glo_orders_cache.update({mid_: ca_.update_by_one(row_)})
 
-            if len(glo_orders_cache[mid_].df) > glo_variable['max_order_num']:
-                df = glo_orders_cache[mid_].df
-                glo_variable['max_order_num'] = len(df)
-                print(glo_variable['max_order_num'])
+    for mid_, pay_day_ in df_mul_inx.index.unique():
+        if mid_ not in glo_orders_cache:
+            # order_all_df = get_member_order_all(mid_, glo_variable['orders_end_time'])
+            # glo_orders_cache[mid_] = MemberOrderCache(order_all_df)
+            insert_glo_cache(glo_orders_cache, mid_)
+            print_wf(f'{mid_} init~, insert all orders <<')
+        else:
+            ca_ = glo_orders_cache[mid_]
+            ca_.update_by_rows(df_mul_inx.loc[[(mid_, pay_day_)], :])
+            glo_orders_cache.update({mid_: ca_})
 
-        # if glo_variable['max_order_num'] > 222:
-        #     break
+        if len(glo_orders_cache[mid_].df) > glo_variable['max_order_num']:
+            df = glo_orders_cache[mid_].df
+            glo_variable['max_order_num'] = len(df)
 
-        print(_, glo_orders_cache.__len__(), glo_variable)
-        return handle_df.mid.unique().tolist()
+    print(glo_orders_cache.__len__(), glo_variable)
+    return handle_df.mid.unique().tolist()
 
 
 def df_mid_p(df_, id_cols_count=3):
@@ -354,21 +358,17 @@ def do_a_predict(ca_,):
     :param ca_:
     :return:
     """
-    # mid_ = 'C312199A45544B46A3CADB6A8F79FC3B'
+    # mid_ = 'c6d5a8a515fb4603ae2c685d90aff0e3'
     # ca_ = glo_orders_cache[mid_]
     print(f'{ca_.mid} len:{ca_.len_}', end=' >>')
     if ca_.len_ < 2:
         print(' out ')
         return 0
     # 传统预测 均值 和 msa
-    df_to_table = ca_.df_p.iloc[[-1]][['mid', 'Pay_Time', 'pay_day']]
+    df_to_table = ca_.df_p.iloc[[-1]][['mid', 'pay_time', 'pay_day']]
     df_to_table['predict_type'] = 0
     df_to_table['predict_dt'] = ca_.dfr['diff_time_avg'][0]
     dfp_update_to_predict(df_to_table)
-    # predict_day = df_to_table['pay_day'] + df_to_table['predict_dt']
-    # df_to_table['predict_time'] = predict_day.map(lambda x: f'FROM_UNIXTIME({x * 86400})')
-    # df_to_table.drop('pay_day', axis=1, inplace=True)
-    # general_upd_by_df(df_to_table, 'bm_m1_up_predict_model_record_e')
 
     df_to_table['predict_type'] = -1
     # print(ca_.dfr)
@@ -380,46 +380,46 @@ def do_a_predict(ca_,):
     dfp_update_to_predict(df_to_table)
 
     # 小于10次的则暂时不走入网络预测
-    if ca_.len_ < 10:
-        print(' 更新部分信息后 out ')
-        return 0
-    for m_name in glo_nn_opt.keys():
-        arr_ = mx_df_cut(ca_.df_p, m_name)
-        # 每个用户 通过自己的max_dt 来归一化
-        # arr_[:, -1] /= ca_.max_dt
-        glo_nn_opt[m_name]['input_nodes'] = arr_.shape[1] - 1
-        my_nn = ANNCon(name=m_name, **glo_nn_opt[m_name])
-        # 准备读取
-        save_dir = get_save_dir(m_name)
-        try:
-            di_ = VHolder().pickup(save_dir + 'nn_instance_saved_value')
-            # 因为从群体到个体，y的归一化放入my_nn内，存储的nn_instance_saved_value不包含y的归一化方式
-            di_.update({'y_norm_tp': 'dev_Max', 'y_max_arr': ca_.max_dt})
-            # 读取归一化方式
-            my_nn.instance_dict2var(di_)
-            # 读取网络
-            my_nn.net_save_restore(save_dir, sr_type='load_latest')
-        except AttributeError as err:
-            print('flag:: 中心参数不存在', err)
-        my_nn.data_init(arr_)
-        my_nn.re_normalize_x()
-        my_nn.re_normalize_y()
-        my_nn.nn_fit_with_cross(times=300, op_err=0.0003, )  # e_print=True
-        my_nn.net_predict(do_inverse=True)
+    if ca_.len_ > 10:
+        for m_name in glo_nn_opt.keys():
+            arr_ = mx_df_cut(ca_.df_p, m_name)
+            # 每个用户 通过自己的max_dt 来归一化
+            # arr_[:, -1] /= ca_.max_dt
+            glo_nn_opt[m_name]['input_nodes'] = arr_.shape[1] - 1
+            my_nn = ANNCon(name=m_name, **glo_nn_opt[m_name])
+            # 准备读取
+            save_dir = get_save_dir(m_name)
+            try:
+                di_ = VHolder().pickup(save_dir + 'nn_instance_saved_value')
+                # 因为从群体到个体，y的归一化放入my_nn内，存储的nn_instance_saved_value不包含y的归一化方式
+                di_.update({'y_norm_tp': 'dev_Max', 'y_max_arr': ca_.max_dt})
+                # 读取归一化方式
+                my_nn.instance_dict2var(di_)
+                # 读取网络
+                my_nn.net_save_restore(save_dir, sr_type='load_latest')
+            except AttributeError as err:
+                print('flag:: 中心参数不存在', err)
+            my_nn.data_init(arr_)
+            my_nn.re_normalize_x()
+            my_nn.re_normalize_y()
+            my_nn.nn_fit_with_cross(times=300, op_err=0.0003, )  # e_print=True
+            my_nn.net_predict(do_inverse=True)
 
-        # 更新相应模型结果
-        df_to_table['predict_type'] = gol_nn_ids[m_name]
-        df_to_table['predict_dt'] = my_nn.yp_data[-1, 0]
-        dfp_update_to_predict(df_to_table)
+            # 更新相应模型结果
+            df_to_table['predict_type'] = gol_nn_ids[m_name]
+            df_to_table['predict_dt'] = my_nn.yp_data[-1, 0]
+            dfp_update_to_predict(df_to_table)
 
     # 更新历史record
-    do_num = 10 if ca_.len_ > 10 else ca_.len_ - 1
-    dfr_record = ca_.df_p.iloc[-do_num - 1:-1][['mid', 'Pay_Time', 'pay_day']].reset_index(drop=True)
-    dfr_record['real_time'] = ca_.df_p.iloc[-do_num:]['Pay_Time'].reset_index(drop=True)
-    # TODO 加速方式
-    for inx in dfr_record.index:
-        df_update_record(dfr_record.loc[[inx]])
-    print(f'{ca_.mid} len:{ca_.len_} 完成所有子模型结果更新')
+    # do_num = 10 if ca_.len_ > 10 else ca_.len_ - 1
+    do_num = 2 if ca_.len_ > 3 else 1
+    dfr_record = ca_.df_p.iloc[-do_num - 1:-1][['mid', 'pay_time', 'pay_day']].reset_index(drop=True)
+    dfr_record['real_time'] = ca_.df_p.iloc[-do_num:]['pay_time'].reset_index(drop=True)
+    # done 加速方式
+    # for inx in dfr_record.index:
+    #     df_update_record(dfr_record.loc[[inx]])
+    df_update_record(dfr_record)
+    print(f'{ca_.mid} len:{ca_.len_} 完成所有子模型结果更新。 dfr_record {len(dfr_record)}')
 
 
 def threading_hold_print(stack_to, wait_to, sleept=5, flush_ss=' '*140+'stall waiting for: %s threads .... \r'):
@@ -434,7 +434,7 @@ def threading_hold_print(stack_to, wait_to, sleept=5, flush_ss=' '*140+'stall wa
 
 
 def do_predict_(ca_li, ):
-    # TODO predict过程不会改写glo_orders_cache 所以不需要这么重的存储共享
+    # done predict过程不会改写glo_orders_cache 所以不需要这么重的存储共享
     task_li = []
     for ca_ in ca_li:
         # do_a_predict(mid_)

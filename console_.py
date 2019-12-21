@@ -5,8 +5,11 @@ from buildings.comm_across import *
 from buildings.processing_funcs import *
 from buildings.unstable_funcs import *
 
-mgr = multiprocessing.Manager()
-glo_orders_cache = mgr.dict()
+# 调试时启用
+glo_orders_cache = {}
+
+# mgr = multiprocessing.Manager()
+# glo_orders_cache = mgr.dict()
 
 
 def mid2cha_li(mid_li, glo_cache_=glo_orders_cache):
@@ -32,7 +35,7 @@ def user_profile_predict():
 
     for i in range(999999):
         # 获取部分
-        mid_li = do_profile_(glo_orders_cache)
+        mid_li = set_ca_list(glo_orders_cache)
         # 画像部分
         for mid_ in mid_li:
             profile_ca(mid_, glo_orders_cache)
@@ -42,7 +45,7 @@ def user_profile_predict():
             print(f'{i}, all_num:{len(mid_li)}, all_batch:{len(re_mid_li)}, this: {len(part_mid_li)}')
             ca_li = mid2cha_li(part_mid_li, )
             do_predict_(ca_li, )
-            do_choice_(part_mid_li)
+            # do_choice_(part_mid_li)
 
 
 if __name__ == "__main__":
