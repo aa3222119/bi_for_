@@ -390,7 +390,7 @@ def do_a_predict(ca_,):
             # arr_[:, -1] /= ca_.max_dt
             glo_nn_opt[m_name]['input_nodes'] = arr_.shape[1] - 1
             my_nn = ANNCon(name=m_name, **glo_nn_opt[m_name])
-            # 准备读取
+            # online-learning:: 准备读取历史中心网络
             save_dir = get_save_dir(m_name)
             try:
                 di_ = VHolder().pickup(save_dir + 'nn_instance_saved_value')
@@ -401,11 +401,11 @@ def do_a_predict(ca_,):
                 # 读取网络
                 my_nn.net_save_restore(save_dir, sr_type='load_latest')
             except AttributeError as err:
-                print('flag:: 中心参数不存在', err)
+                print('flag:: 中心参数不存在', err, '后面直接从随机初始权重开始训练')
             my_nn.data_init(arr_)
             my_nn.re_normalize_x()
             my_nn.re_normalize_y()
-            my_nn.nn_fit_with_cross(times=300, op_err=0.0003, )  # e_print=True
+            my_nn.nn_fit_with_cross(times=300, op_err=0.0003, l_print=True)  # e_print=True
             my_nn.net_predict(do_inverse=True)
 
             # 更新相应模型结果
@@ -418,7 +418,7 @@ def do_a_predict(ca_,):
     do_num = 2 if ca_.len_ > 3 else 1
     dfr_record = ca_.df_p.iloc[-do_num - 1:-1][['mid', 'pay_time', 'pay_day']].reset_index(drop=True)
     dfr_record['real_time'] = ca_.df_p.iloc[-do_num:]['pay_time'].reset_index(drop=True)
-    # done 加速方式
+    # done 加速处理的方式
     # for inx in dfr_record.index:
     #     df_update_record(dfr_record.loc[[inx]])
     df_update_record(dfr_record)
@@ -441,9 +441,11 @@ def do_predict_(ca_li, ):
     task_li = []
     for ca_ in ca_li:
         # do_a_predict(mid_)
+        # 添加一个预测任务
         task = threading.Thread(target=do_a_predict, args=(ca_, ))
         task.start()
         task_li.append(task)
+        # 控制同时进行的任务数
         threading_hold_print(7, 3, sleept=5, flush_ss='fthreads num: %s .. \r')
     for task in task_li:
         task.join()
