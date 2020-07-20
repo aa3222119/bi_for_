@@ -20,7 +20,7 @@ def get_pgsql_cli(name=PGSQL_BI_NAME):
     return PgsqlPyc(pgsql_dbs[name])
 
 
-pg_bi_cli = get_pgsql_cli(PGSQL_BI_NAME)  # 标准mysql_bi连接
+pg_bi_cli = get_pgsql_cli(PGSQL_BI_NAME)  # 标准pgsql连接
 
 
 def get_table_one_line(table_name, my_cli=my_bi_cli, o_='df'):
