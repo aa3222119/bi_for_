@@ -31,18 +31,18 @@ def insert_glo_cache(glo_orders_cache, mid_, with_end_time_limit=True, with_forc
     glo_orders_cache.update({mid_: MemberOrderCache(order_all_df)})
 
 
-def get_handle_list():
+def get_handle_list(with_init=False):
     for _ in range(9999):
         status_df1 = get_status_by_mid(2)
         # 需要追赶的秒数,小于零时表示系统已经赶超了，需要等待的秒数
         glo_variable['pursue_secs'] = time.time() - glo_variable['delay_secs'] \
             - status_df1.loc[0, 'record0'] - status_df1.loc[0, 'numb0']
         Timer(0).runtime_delay(glo_variable['pursue_secs'])
-        # # 没有缓存的时候说明是第一次，会额外做-1的任务,回拨一下record0时间
-        # if glo_variable['max_order_num'] < 1:
-        #     back_seconds = status_df1.loc[0, 'numb0'] * 1.5
-        #     print(f'回拨时间{back_seconds} s...')
-        #     status_df1.loc[0, 'record0'] -= back_seconds
+        # 没有缓存的时候说明是第一次，会额外做-1的任务,回拨一下record0时间
+        if not with_init and glo_variable['max_order_num'] < 1:
+            back_seconds = status_df1.loc[0, 'numb0'] * 1.5
+            print(f'回拨时间{back_seconds} s...')
+            status_df1.loc[0, 'record0'] -= back_seconds
         df_ = general_order_get(status_df1.loc[0, 'record0'], status_df1.loc[0, 'numb0'])
         status_df1.loc[0, 'record0'] += status_df1.loc[0, 'numb0']
         glo_variable['orders_end_time'] = status_df1.loc[0, 'record0']
@@ -232,14 +232,15 @@ def profile_ca(mid_, glo_orders_cache):
     return df, dfr
 
 
-def set_ca_list(glo_orders_cache):
+def set_ca_list(glo_orders_cache, with_init=False):
     """
     返回待处理用户id列表，并更新glo_orders_cache
     :param glo_orders_cache:
+    :param with_init:
     :return:
     """
 
-    handle_df = get_handle_list()
+    handle_df = get_handle_list(with_init)
     ret_li = []
     if len(handle_df):
         df_mul_inx = handle_df.set_index(['mid', 'pay_day'])
@@ -322,7 +323,7 @@ def update_center_network(glo_orders_cache):
             print(f'{m_name}，可用于训练中心的样本数应大于1000实际{samples_}', end=' >> ')
             continue
         glo_nn_opt[m_name]['input_nodes'] = mx_arr_di[m_name].shape[1] - 1
-        save_dir = get_save_dir(m_name)
+        save_dir = get_save_dir(m_name, MERCHANT_NAME)
 
         my_nn = ANNCon(name=m_name, **glo_nn_opt[m_name])
         my_nn.data_init(mx_arr_di[m_name])
@@ -330,7 +331,7 @@ def update_center_network(glo_orders_cache):
         # my_nn.normalize_y(tp='rel_n11')
         op_times = 5
         try:
-            my_nn.net_save_restore(save_dir, sr_type='load_latest')
+            # my_nn.net_save_restore(save_dir, sr_type='load_latest')
             print(f'{m_name}load success, 走到这里了才说明中心网络也有了online learning特性')
         except Exception as err:
             op_times = 10
@@ -391,18 +392,20 @@ def do_a_predict(ca_,):
             glo_nn_opt[m_name]['input_nodes'] = arr_.shape[1] - 1
             my_nn = ANNCon(name=m_name, **glo_nn_opt[m_name])
             # online-learning:: 准备读取历史中心网络
-            save_dir = get_save_dir(m_name)
-            try:
-                di_ = VHolder().pickup(save_dir + 'nn_instance_saved_value')
-                # 因为从群体到个体，y的归一化放入my_nn内，存储的nn_instance_saved_value不包含y的归一化方式
-                di_.update({'y_norm_tp': 'dev_Max', 'y_max_arr': ca_.max_dt})
-                # 读取归一化方式
-                my_nn.instance_dict2var(di_)
-                # 读取网络
-                my_nn.net_save_restore(save_dir, sr_type='load_latest')
-            except AttributeError as err:
-                print('flag:: 中心参数不存在', err, '后面直接从随机初始权重开始训练')
+            save_dir = get_save_dir(m_name, MERCHANT_NAME)
+            # try:
+            #     di_ = VHolder().pickup(save_dir + 'nn_instance_saved_value')
+            #     # 因为从群体到个体，y的归一化放入my_nn内，存储的nn_instance_saved_value不包含y的归一化方式
+            #     di_.update({'y_norm_tp': 'dev_Max', 'y_max_arr': ca_.max_dt})
+            #     # 读取归一化方式
+            #     my_nn.instance_dict2var(di_)
+            #     # 读取网络
+            #     my_nn.net_save_restore(save_dir, sr_type='load_latest')
+            # except AttributeError as err:
+            #     print('flag:: 中心参数不存在', save_dir, err, '从随机初始开始训练')
+            # print(ca_.mid, arr_)
             my_nn.data_init(arr_)
+
             my_nn.re_normalize_x()
             my_nn.re_normalize_y()
             my_nn.nn_fit_with_cross(times=300, op_err=0.0003, l_print=True)  # e_print=True
@@ -440,13 +443,13 @@ def do_predict_(ca_li, ):
     # done predict过程不会改写glo_orders_cache 所以不需要这么重的存储共享
     task_li = []
     for ca_ in ca_li:
-        # do_a_predict(mid_)
+        # do_a_predict(ca_)
         # 添加一个预测任务
         task = threading.Thread(target=do_a_predict, args=(ca_, ))
         task.start()
         task_li.append(task)
         # 控制同时进行的任务数
-        threading_hold_print(7, 3, sleept=5, flush_ss='fthreads num: %s .. \r')
+        threading_hold_print(9, 6, sleept=5, flush_ss='fthreads num: %s .. \r')
     for task in task_li:
         task.join()
 

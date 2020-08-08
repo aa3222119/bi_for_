@@ -38,7 +38,7 @@ def user_profile_predict(with_init=False):
 
     for i in range(999999):
         # 获取部分
-        mid_li = set_ca_list(glo_orders_cache)
+        mid_li = set_ca_list(glo_orders_cache, with_init=with_init)
         # 画像部分
         for mid_ in mid_li:
             profile_ca(mid_, glo_orders_cache)

@@ -188,6 +188,7 @@ class ANNCon:
             else:
                 arr_tmp = (np.random.random(99) - 1 / (batch_train_lp + 1)) * len(self.train_ind)
                 be_ind_array = np.clip(arr_tmp, 0, len(self.train_ind) - 1).astype('int')
+                # print(be_ind_array)
                 self.pure_fit_with_be(be_ind_array, batch_size=40)
 
             mse_train = self.sess.run(self.loss, feed_dict=standard_feed)

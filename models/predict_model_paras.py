@@ -35,6 +35,6 @@ glo_nn_raw_cols = {
 # glo_nn_names = ['ann1', 'ann2', 'rnn1', 'rnn2']
 
 
-def get_save_dir(m_name='ann1'):
+def get_save_dir(m_name='ann1', mer_id=''):
     nodes_ss = f"{glo_nn_opt[m_name]['input_nodes']}_" + '_'.join(map(str, glo_nn_opt[m_name]['hidden_layers']))
-    return f".data/model_data2/{m_name}/{nodes_ss}/Re_{gol_nn_re_last_dts[m_name]}/"
+    return f".data/model_data2_{mer_id}/{m_name}/{nodes_ss}/Re_{gol_nn_re_last_dts[m_name]}/"
